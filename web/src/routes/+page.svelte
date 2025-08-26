@@ -3,12 +3,18 @@
 	import { onMount } from "svelte";
 
     let video_elm: HTMLVideoElement | undefined = $state();
-    let video_src = "http://localhost:8080/static/stream/stream.m3u8"
+    let video_src = "http://localhost:8080/protected/stream/stream.m3u8"
     onMount(() => {
-        if (Hls.isSupported() && video_elm) {
-            var hls = new Hls();
+        if (Hls.isSupported() && video_elm != undefined) {
+            var hls = new Hls({
+                liveSyncMode: "edge",
+                liveSyncDurationCount: 1
+            });
             hls.loadSource(video_src);
             hls.attachMedia(video_elm);
+            hls.on((Hls.Events.MEDIA_ATTACHED), () => {
+                video_elm?.play();
+            })
         }
     })
 </script>
@@ -17,6 +23,6 @@
     <div class="flex items-center justify-center flex-col">
         <h1 class="text-4xl">Nephtys Camera Software</h1>
         <!-- svelte-ignore a11y_media_has_caption -->
-        <video bind:this={video_elm} controls></video>
+        <video bind:this={video_elm} autoplay muted></video>
     </div>
 </div>

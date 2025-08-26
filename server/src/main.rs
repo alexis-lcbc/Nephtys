@@ -1,22 +1,43 @@
-use std::{time, i32, process::Command, str::FromStr, sync::mpsc::{self, Receiver, Sender}, thread::{self}};
-use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
+use std::{collections::HashMap, fs, process::Command, sync::{mpsc::{self}, Mutex}, thread::{self}, time::{self, Duration, Instant}};
+use actix_web::{get, post, web::{self, Data}, App, HttpResponse, HttpServer, Responder};
 use actix_files::Files;
 use actix_cors::Cors;
+use argon2::password_hash::{Salt, SaltString, rand_core::OsRng};
 use chrono::{Local};
-use opencv::{
- core::{no_array, Point, Point_, Size_, VecN, Vector, BORDER_CONSTANT, BORDER_DEFAULT}, highgui::{self}, imgproc::{self, bounding_rect, ADAPTIVE_THRESH_GAUSSIAN_C, CHAIN_APPROX_TC89_L1, COLOR_BGR2GRAY, INTER_LINEAR, MORPH_CLOSE, RETR_EXTERNAL, THRESH_BINARY_INV}, prelude::*, sys::cv_utils_logging_setLogLevel_LogLevel, videoio
-};
+use rand::distr::SampleString;
+use serde::{Serialize, Deserialize};
+
+use crate::routes::auth::{get_check_token, create_account};
+pub mod movement_detector;
+pub mod routes;
 
 const HOSTNAME: &str = "nephtys.local";
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Config {
+    port: u16,
+    camera_path: String,
+    username: String,
+    pass_hash: String,
+    salt: String
+}
+
+struct AppState {
+    config: Config,
+    tokens: Mutex<HashMap<String, time::Instant>>
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+
+    println!("Loading configuration");
+    let config = load_config();
     println!("starting ffmpeg hosting thread");
     start_ffmpeg_webcam_streaming("/dev/video0".to_string());
     let (mov_detect_tx, mov_detect_rx) = mpsc::channel::<bool>();
 
     println!("starting camera detect thread");
-    start_movement_detect_thread(mov_detect_tx);
+    movement_detector::start_movement_detect_thread(mov_detect_tx);
 
     thread::spawn(move || {
     loop {
@@ -28,16 +49,73 @@ async fn main() -> std::io::Result<()> {
     });
 
     println!("starting web server");
+    env_logger::init();
+    HttpServer::new(move || {
+        let auth_protected_scope = web::scope("/protected")
+        .service(Files::new("/stream", "./static/stream").show_files_listing());
     
-    HttpServer::new(|| {
         App::new()
-            .service(Files::new("/static", "./static").show_files_listing())
+        .app_data(Data::new(Mutex::new(AppState {config: config.clone(), tokens: Mutex::new(HashMap::<String, Instant>::new())})))
+            .service(create_account)
+            .service(get_check_token)
+            .service(hello)
+            .service(auth_protected_scope)
             .wrap(Cors::permissive())
     })
-    .bind(("127.0.0.1", 8080))?
+    .bind(("127.0.0.1", load_config().port))?
     .run()
     .await
+}
 
+#[get("/")]
+async fn hello() -> impl Responder {
+    HttpResponse::Ok().body("Hello world!")
+}
+
+fn load_config() -> Config {
+    let salt = SaltString::generate(&mut OsRng);
+    let mut config = Config {
+        camera_path: "/dev/video0".to_string(),
+        port: 8080,
+        username: "".to_string(),
+        pass_hash: "".to_string(),
+        salt: salt.to_string()
+    };
+    match fs::read_to_string("./config.toml") {
+        Ok(s) => {
+            match toml::from_str(s.as_str()) {
+                Ok(conf) => config = conf,
+                Err(_) => panic!("Couldn't parse config.toml please check the file.")
+            }
+        },
+        Err(_) => {
+            fs::write("./config.toml", 
+            toml::to_string_pretty(&config)
+                        .expect("Couldn't parse default configuration")
+            ).expect("Missing config.toml & Couldn't write the default config to it. Check permissions.")
+        }
+    }
+
+    return config;
+}
+
+pub enum WriteConfigError {
+    FileSystemError,
+    ParsingError
+}
+
+pub fn write_config(config: &Config) -> Result<(), WriteConfigError> {
+    let parsed = toml::to_string_pretty(&config);
+    match parsed {
+        Ok(parsed) => {
+            match fs::write("./config.toml", parsed) {
+                Ok(_) => Ok(()),
+                Err(_) => Err(WriteConfigError::FileSystemError)
+            }
+        }, Err(_) => {
+            return Err(WriteConfigError::ParsingError)
+        }
+    }
 
 }
 
@@ -63,79 +141,4 @@ fn start_ffmpeg_webcam_streaming(input: String) {
         .expect("FATAL: Couldn't start FFMPEG");
         });
 
-}
-
-
-fn start_movement_detect_thread(mov_detect_tx: Sender<bool>) {
-
-    thread::spawn(move || {
-    // hardcoding a delay is bad
-    // TODO: Detect when enough .m4s have been added to the stream folder and start once that is reached.
-    thread::sleep(time::Duration::from_millis(10000));
-    println!("movement detection thread starting...");
-    let mut cam = videoio::VideoCapture::from_file("http://localhost:8080/static/stream/stream.m3u8", videoio::CAP_ANY).unwrap();
-    let mut frame = Mat::default(); // This array will store the web-cam data
-    let mut prev_frame = Mat::default();
-    let mut is_first_frame = true;
-
-    let mut detection_count = 0;
-    let mut frame_count = 0;
-    // Read the camera
-    // and display in the window
-    loop {
-        cam.read(&mut frame).unwrap();
-        let mut rescaled:Mat = Mat::default();
-        imgproc::resize(&frame, &mut rescaled, Size_ { width: 640, height: 360 }, 0.5, 0.5, INTER_LINEAR).unwrap();
-        let mut first_pass: Mat = Mat::default();
-        imgproc::cvt_color(&rescaled, &mut first_pass, COLOR_BGR2GRAY, 0).unwrap();
-        let mut final_frame: Mat = Mat::default();
-        imgproc::blur(&first_pass, &mut final_frame, Size_ { width: 10, height: 10 }, Point_ { x: -1, y: -1 }, BORDER_DEFAULT).unwrap();
-
-        
-        frame_count+=1;
-
-        if is_first_frame {
-            is_first_frame = false;
-            prev_frame = final_frame;
-            continue;
-        }
-
-
-        let mut diff_frame = Mat::default();
-        opencv::core::subtract(&final_frame, &prev_frame, &mut diff_frame, &no_array(), -1).unwrap();
-        let mut mask_frame = Mat::default();
-        imgproc::adaptive_threshold(&diff_frame, &mut mask_frame, 255.0, ADAPTIVE_THRESH_GAUSSIAN_C, THRESH_BINARY_INV, 11, 3.0).unwrap();
-        let kernel = imgproc::get_structuring_element(
-            imgproc::MORPH_RECT,
-            Size_ { width: 5, height: 5 },
-            Point { x: -1, y: -1 },
-        ).unwrap();
-        let mut mask_frame_2 = Mat::default();
-        imgproc::morphology_ex(&mask_frame, &mut mask_frame_2, MORPH_CLOSE, &kernel, Point { x: -1, y: -1 }, 2, BORDER_CONSTANT, VecN::new(0.0, 0.0, 0.0, 0.0)).unwrap();
-        let mut contours: Vector<Vector<Point_<i32>>> = Vector::new();
-        imgproc::find_contours(&mask_frame_2, &mut contours, RETR_EXTERNAL, CHAIN_APPROX_TC89_L1, Point_ { x: 0, y: 0 }).unwrap();
-
-        for countour in contours {
-            let bb = bounding_rect(&countour).unwrap();
-            if bb.area() > 250 {
-                //TODO: Count potential detection up
-                detection_count+=1;
-                if detection_count > 10 {
-                    mov_detect_tx.send(true).unwrap();
-                    detection_count = 0;
-                }
-            }
-        }
-
-        if frame_count >= 30 {
-            frame_count = 0;
-            detection_count = 0;
-        }
-
-        prev_frame = final_frame;
-    }
-    });
-
-    // handle.join().unwrap();
-    println!("mov thread start");
 }
