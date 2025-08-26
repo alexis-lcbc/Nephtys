@@ -1,0 +1,14 @@
+# Potential ffmpeg command
+ffmpeg -f v4l2 
+-input_format mjpeg 
+-video_size 1280x720 
+-framerate 30 
+-i /dev/video0 
+-c:v libx264 
+-preset ultrafast 
+-tune zerolatency 
+-f hls 
+-hls_time 2 
+-hls_flags independent_segments 
+-hls_base_url http://nephtys.local/static/stream
+stream.m3u8
