@@ -1,5 +1,5 @@
 port = 8080
 camera_path = "/dev/video0"
 username = "alexis"
-pass_hash = "$argon2id$v=19$m=19456,t=2,p=1$JORfEwTKVdQcAykD$DxFAyQ4fmaDrNsWDTJx2k620QF+d6rYdnWX1d1LItcY"
-salt = "JORfEwTKVdQcAykD"
+pass_hash = "$argon2id$v=19$m=19456,t=2,p=1$+QuvOFPKg20XztjgaAszzA$riTV7qgYYrZ/IHbI/mhwLxWAjev2oqQsMqoNANwbzpI"
+salt = "+QuvOFPKg20XztjgaAszzA"

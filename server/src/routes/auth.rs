@@ -1,20 +1,39 @@
-use std::{sync::{Arc, Mutex}, time::{self, Duration, Instant}};
+use std::{
+    sync::{Arc, Mutex},
+    time::{self, Duration, Instant},
+};
 
-use actix_web::{cookie::Cookie, get, http::StatusCode, post, web, HttpRequest, HttpResponse, Responder};
-use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
+use actix_web::{
+    Error, HttpRequest, HttpResponse, Responder,
+    body::MessageBody,
+    cookie::Cookie,
+    dev::{ServiceRequest, ServiceResponse},
+    error::{ErrorInternalServerError, ErrorUnauthorized},
+    get,
+    http::StatusCode,
+    middleware::Next,
+    post, web,
+};
+use argon2::{
+    Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
+    password_hash::{Encoding, SaltString},
+};
 use rand::distr::SampleString;
 use serde::Deserialize;
 
-use crate::{write_config, AppState};
+use crate::{AppState, write_config};
 
 #[derive(Deserialize)]
 struct AuthInfo {
     username: String,
-    password: String
+    password: String,
 }
 
 #[post("/auth/create")]
-async fn create_account(app_state: web::Data<Mutex<AppState>>, info: web::Json<AuthInfo>) -> impl Responder {
+async fn create_account(
+    app_state: web::Data<Mutex<AppState>>,
+    info: web::Json<AuthInfo>,
+) -> impl Responder {
     let mut data = app_state.lock().unwrap();
     if data.config.username != "" || data.config.pass_hash != "" {
         return HttpResponse::Forbidden().body("A user was already created for this instance");
@@ -31,64 +50,100 @@ async fn create_account(app_state: web::Data<Mutex<AppState>>, info: web::Json<A
             let pass_hash = argon.hash_password(&info.password.as_bytes(), salt_string);
             match pass_hash {
                 Ok(pass_hash) => new_conf.pass_hash = pass_hash.to_string(),
-                Err(_) => return HttpResponse::InternalServerError().body("Password hash couldn't be generated")
+                Err(_) => {
+                    return HttpResponse::InternalServerError()
+                        .body("Password hash couldn't be generated");
+                }
             }
-        },
+        }
         Err(_) => {
             return HttpResponse::InternalServerError().body("Password salt couldn't be generated");
         }
     }
-    
+
     if write_config(&new_conf).is_err() {
-        return HttpResponse::InternalServerError().body("Couldn't save your login."); 
+        return HttpResponse::InternalServerError().body("Couldn't save your login.");
     }
 
     data.config = new_conf;
-    
 
-    match data.tokens.lock() {
-        Ok(mut tokens) => {
-            let mut exp = Instant::now();
-            exp += Duration::from_secs(60 * 60 * 24 * 31); // Now + 31 days
-            
+    let (token, exp) = generate_token();
+    data.tokens.insert(token.clone(), exp);
+    let mut cookie = Cookie::new("Authorization", token);
+    cookie.set_path("/");
+    let mut response = HttpResponse::Ok().body("OK");
+    match response.add_cookie(&cookie) {
+        Ok(_) => return response,
+        Err(_) => {
+            return HttpResponse::InternalServerError()
+                .body("Account created without a token. Try to log in.");
+        }
+    }
+}
 
-            let token = rand::distr::Alphanumeric.sample_string(&mut rand::rng(), 32);
-            tokens.insert(token.clone(), exp);
+#[post("/login")]
+async fn login(app_state: web::Data<Mutex<AppState>>, info: web::Json<AuthInfo>) -> impl Responder {
+    let mut data = app_state.lock().unwrap();
+    let hash = match PasswordHash::new(data.config.pass_hash.as_str()) {
+        Ok(pw_hash) => pw_hash,
+        Err(_) => {
+            return HttpResponse::InternalServerError()
+                .body("Invalid configuration file on server's side");
+        }
+    };
+    match Argon2::default().verify_password(info.password.as_bytes(), &hash) {
+        Ok(_) => {
+            let (token, exp) = generate_token();
+            data.tokens.insert(token.clone(), exp);
+            let mut cookie = Cookie::new("Authorization", token);
+            cookie.set_path("/");
 
-            let cookie = Cookie::new("Authorization", token);
             let mut response = HttpResponse::Ok().body("OK");
             match response.add_cookie(&cookie) {
                 Ok(_) => return response,
-                Err(_) => return HttpResponse::InternalServerError().body("Account created without a token. Try to log in.")
-            }
-        },
-        Err(_) => return HttpResponse::InternalServerError().body("Account created without a token. Try to log in.")
-    }
-
-
-
-}
-
-#[get("/auth/check")]
-async fn get_check_token(app_state: web::Data<Mutex<AppState>>, req: HttpRequest) -> impl Responder {
-    let data = app_state.lock().unwrap();
-        match req.cookie("Authorization") {
-            Some(cookie) => {
-                match data.tokens.lock() {
-                    Ok(tokens) => {
-                        if tokens.contains_key(cookie.value()) {
-                            return HttpResponse::Ok().body("OK")
-                        } else {
-                            return HttpResponse::Unauthorized().body("Invalid Authorization cookie")
-                        }
-                    },
-                    Err(_) => {
-                        return HttpResponse::InternalServerError().body("Internal Server Error")
-                    }
+                Err(_) => {
+                    return HttpResponse::InternalServerError()
+                        .body("Couldn't add the token cookie... please try again");
                 }
-            },
-            None => {
-                return HttpResponse::Unauthorized().body("Missing Authorization cookie")
             }
         }
+        Err(_) => return HttpResponse::Unauthorized().body("Invalid username or password"),
+    }
+}
+
+#[get("/check")] // under /protected scope
+async fn get_check_token(
+    app_state: web::Data<Mutex<AppState>>,
+    req: HttpRequest,
+) -> impl Responder {
+    //This is behind the check_token_middleware
+    return HttpResponse::Ok().body("OK");
+}
+
+pub async fn check_token_middleware(
+    req: ServiceRequest,
+    next: Next<impl MessageBody>,
+) -> Result<ServiceResponse<impl MessageBody>, Error> {
+    let app_state = req
+        .app_data::<web::Data<Mutex<AppState>>>()
+        .unwrap()
+        .clone();
+    let data = app_state.lock().unwrap();
+    match req.cookie("Authorization") {
+        Some(cookie) => {
+            if data.tokens.contains_key(cookie.value()) {
+                return next.call(req).await;
+            } else {
+                return Err(ErrorUnauthorized("Invalid Authorization cookie"));
+            }
+        }
+        None => return Err(ErrorUnauthorized("Missing Authorization cookie")),
+    }
+}
+
+fn generate_token() -> (String, Instant) {
+    let mut exp = Instant::now();
+    exp += Duration::from_secs(60 * 60 * 24 * 31); // Now + 31 days
+    let token = rand::distr::Alphanumeric.sample_string(&mut rand::rng(), 32);
+    return (token, exp);
 }

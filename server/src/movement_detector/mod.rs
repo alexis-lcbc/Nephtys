@@ -10,7 +10,7 @@ pub fn start_movement_detect_thread(mov_detect_tx: Sender<bool>) {
     // TODO: Detect when enough .m4s have been added to the stream folder and start once that is reached.
     thread::sleep(time::Duration::from_millis(10000));
     println!("movement detection thread starting...");
-    let mut cam = videoio::VideoCapture::from_file("http://localhost:8080/protected/stream/stream.m3u8", videoio::CAP_ANY).unwrap();
+    let mut cam = videoio::VideoCapture::from_file("./static/stream/stream.m3u8", videoio::CAP_ANY).unwrap();
     let mut frame = Mat::default(); // This array will store the web-cam data
     let mut prev_frame = Mat::default();
     let mut is_first_frame = true;

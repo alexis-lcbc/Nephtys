@@ -3,7 +3,7 @@
 	import { onMount } from "svelte";
 
     let video_elm: HTMLVideoElement | undefined = $state();
-    let video_src = "http://localhost:8080/protected/stream/stream.m3u8"
+    let video_src = "/api/protected/stream/stream.m3u8"
     onMount(() => {
         if (Hls.isSupported() && video_elm != undefined) {
             var hls = new Hls({
