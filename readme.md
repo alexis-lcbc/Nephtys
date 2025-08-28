@@ -5,11 +5,11 @@ Nephtys can be deployed to capture almost any supported linux webcams.
 
 ## Goals
 - [x] HLS Streaming one camera
-- [ ] Save last 4 days to disk
+- [ ] ~~Save last 4 days to disk~~ (cancelled)
 - [ ] Able to record from one or more sources
 - [x] Movement and person detection
-- [ ] Automatic save when movement detection
-- [ ] Remote control (Web UI)
+- [x] Automatic save when movement detection
+- [x] Remote control (Web UI)
     - Basic stream view (done)
     - Event logs (movement detection)
     - View past recordings
