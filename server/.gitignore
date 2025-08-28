@@ -1,2 +1,5 @@
 target/
 static/stream/*
+static/clips/*
+config.toml
+concat_m4s.sh

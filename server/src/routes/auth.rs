@@ -1,22 +1,21 @@
 use std::{
-    sync::{Arc, Mutex},
-    time::{self, Duration, Instant},
+    sync::{Mutex},
+    time::{Duration, Instant},
 };
 
 use actix_web::{
-    Error, HttpRequest, HttpResponse, Responder,
+    Error, HttpResponse, Responder,
     body::MessageBody,
     cookie::Cookie,
     dev::{ServiceRequest, ServiceResponse},
-    error::{ErrorInternalServerError, ErrorUnauthorized},
+    error::{ErrorUnauthorized},
     get,
-    http::StatusCode,
     middleware::Next,
     post, web,
 };
 use argon2::{
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
-    password_hash::{Encoding, SaltString},
+    password_hash::{SaltString},
 };
 use rand::distr::SampleString;
 use serde::Deserialize;
@@ -81,7 +80,7 @@ async fn create_account(
     }
 }
 
-#[post("/login")]
+#[post("/auth/login")]
 async fn login(app_state: web::Data<Mutex<AppState>>, info: web::Json<AuthInfo>) -> impl Responder {
     let mut data = app_state.lock().unwrap();
     let hash = match PasswordHash::new(data.config.pass_hash.as_str()) {
@@ -112,10 +111,7 @@ async fn login(app_state: web::Data<Mutex<AppState>>, info: web::Json<AuthInfo>)
 }
 
 #[get("/check")] // under /protected scope
-async fn get_check_token(
-    app_state: web::Data<Mutex<AppState>>,
-    req: HttpRequest,
-) -> impl Responder {
+async fn get_check_token() -> impl Responder {
     //This is behind the check_token_middleware
     return HttpResponse::Ok().body("OK");
 }

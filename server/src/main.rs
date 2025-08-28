@@ -1,14 +1,10 @@
 use actix_cors::Cors;
 use actix_files::Files;
 use actix_web::{
-    App, HttpResponse, HttpServer, Responder, get,
-    middleware::from_fn,
-    post,
-    web::{self, Data},
+    get, middleware::from_fn, web::{self, Data}, App, HttpResponse, HttpServer, Responder
 };
-use argon2::password_hash::{Salt, SaltString, rand_core::OsRng};
-use chrono::Local;
-use rand::distr::SampleString;
+use argon2::password_hash::{SaltString, rand_core::OsRng};
+use crossbeam_channel::unbounded;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -16,17 +12,14 @@ use std::{
     process::Command,
     sync::{
         Mutex,
-        mpsc::{self},
     },
     thread::{self},
-    time::{self, Duration, Instant},
+    time::{self, Instant},
 };
 
-use crate::routes::auth::{check_token_middleware, create_account, get_check_token};
+use crate::routes::auth::{check_token_middleware, create_account, get_check_token, login};
 pub mod movement_detector;
 pub mod routes;
-
-const HOSTNAME: &str = "nephtys.local";
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Config {
@@ -43,29 +36,22 @@ struct AppState {
     tokens: HashMap<String, time::Instant>,
 }
 
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     println!("Loading configuration");
     let config = load_config();
     println!("starting ffmpeg hosting thread");
-    start_ffmpeg_webcam_streaming("/dev/video0".to_string());
-    let (mov_detect_tx, mov_detect_rx) = mpsc::channel::<bool>();
+    start_ffmpeg_webcam_streaming(config.camera_path.clone());
+    let (mov_detect_tx, mov_detect_rx) = unbounded::<bool>();
 
     println!("starting camera detect thread");
     movement_detector::start_movement_detect_thread(mov_detect_tx);
-
-    thread::spawn(move || {
-        loop {
-            for _ in &mov_detect_rx {
-                let now = Local::now();
-                println!("{:?} movement detected", now.to_rfc3339());
-            }
-        }
-    });
+    movement_detector::start_movement_logger(mov_detect_rx);
 
     println!("starting web server");
     env_logger::init();
-    let mut app_data = Data::new(Mutex::new(AppState {
+    let app_data = Data::new(Mutex::new(AppState {
         config: config.clone(),
         tokens: HashMap::<String, Instant>::new(),
     }));
@@ -73,12 +59,15 @@ async fn main() -> std::io::Result<()> {
         let auth_protected_scope = web::scope("/protected")
             .wrap(from_fn(check_token_middleware))
             .service(Files::new("/stream", "./static/stream").show_files_listing())
+            .service(Files::new("/clips", "./static/clips"))
             .service(get_check_token);
 
         App::new()
             .app_data(app_data.clone())
             .service(create_account)
+            .service(login)
             .service(hello)
+            .service(check_setup)
             .service(auth_protected_scope)
             .wrap(Cors::permissive())
     })
@@ -90,6 +79,16 @@ async fn main() -> std::io::Result<()> {
 #[get("/")]
 async fn hello() -> impl Responder {
     HttpResponse::Ok().body("Nephtys server running")
+}
+
+#[get("/check_setup")]
+async fn check_setup(app_state: web::Data<Mutex<AppState>>) -> impl Responder {
+    let data = app_state.lock().unwrap();
+    if data.config.username == "" || data.config.pass_hash == "" {
+        HttpResponse::Ok().body("setup")
+    } else {
+        HttpResponse::Ok().body("")
+    }
 }
 
 fn load_config() -> Config {
@@ -135,7 +134,16 @@ pub fn write_config(config: &Config) -> Result<(), WriteConfigError> {
 }
 
 fn start_ffmpeg_webcam_streaming(input: String) {
+    let _ = fs::remove_dir_all("./static/stream/");
+    match fs::create_dir_all("./static/stream") {
+        Ok(_) => println!("Warning: (re)created ./static/stream"),
+        Err(_) => {
+            fs::exists("./static/stream").expect("FATAL: Couldn't create ./static/stream please check permissions");
+        }
+    }
+
     thread::spawn(move || {
+        println!("ffmpeg opening {}", input.as_str());
         Command::new("ffmpeg")
             .args([
                 "-f",
@@ -161,11 +169,14 @@ fn start_ffmpeg_webcam_streaming(input: String) {
                 "delete_segments+independent_segments+split_by_time",
                 "-hls_segment_type",
                 "fmp4",
+                "-hls_list_size",
+                "10",
                 "-hls_time",
                 "1",
                 "static/stream/stream.m3u8",
             ])
             .output()
             .expect("FATAL: Couldn't start FFMPEG");
+        println!("FFMPEG EXITED");
     });
 }
