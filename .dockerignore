@@ -1,5 +1,4 @@
 # Backend
 ./target
 ./ffmpeg_command.txt
-./config.toml
 ./static

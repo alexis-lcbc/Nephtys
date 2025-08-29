@@ -102,7 +102,14 @@ fn load_config() -> Config {
     };
     match fs::read_to_string("./config.toml") {
         Ok(s) => match toml::from_str(s.as_str()) {
-            Ok(conf) => config = conf,
+            Ok(conf) => {
+                if conf.salt == "" {
+                    println!("No salt found : generating a new one");
+                    salt.to_string();
+                }
+                config = conf;
+
+            },
             Err(_) => panic!("Couldn't parse config.toml please check the file."),
         },
         Err(_) => fs::write(

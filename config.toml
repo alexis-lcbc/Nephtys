@@ -1,0 +1,8 @@
+# Change those
+port = 8080
+camera_path = "/dev/video0"
+
+# Those are managed automatically
+username = ""
+pass_hash = ""
+salt = ""
