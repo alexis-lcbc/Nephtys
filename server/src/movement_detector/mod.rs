@@ -12,8 +12,8 @@ use opencv::{
 use rand::distr::SampleString;
 use serde::{Deserialize, Serialize};
 use std::{
-    fs::{self, DirEntry, ReadDir},
-    io::{self, BufRead, BufReader, Read, Write},
+    fs::{self},
+    io::{self},
     process::{Command, Stdio},
     thread,
     time::{self, Duration},
@@ -278,11 +278,10 @@ fn concat_mp4_fragments(filename: String) {
             let file_path = std::path::Path::new(&file_path_str);
 
             match fs::File::open(format!("./static/clips/{}/{}", filename, file_name_str)) {
-                Ok(file_entry) => {
+                Ok(mut file_entry) => {
                     let filename = file_path.file_name().unwrap().to_str().unwrap();
                     if filename.ends_with(".m4s") && filename != "concat.m4s" {
-                        let mut fragment_file = fs::File::open(file_path).unwrap();
-                        io::copy(&mut fragment_file, &mut output_file).unwrap();
+                        io::copy(&mut file_entry, &mut output_file).unwrap();
                     }
                 }
                 Err(err) => {
@@ -301,7 +300,7 @@ fn concat_mp4_fragments(filename: String) {
 fn generate_mp4_from_chunks(filename: String) {
     thread::spawn(move || {
         concat_mp4_fragments(filename.clone());
-        let ffmpeg_proc: Result<std::process::Child, std::io::Error> = Command::new("ffmpeg")
+        let _ffmpeg_proc: Result<std::process::Child, std::io::Error> = Command::new("ffmpeg")
             .args([
                 "-v",
                 "0",
