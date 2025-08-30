@@ -38,8 +38,14 @@ pub fn start_movement_detect_thread(mov_detect_tx: Sender<bool>) {
         // and display in the window
         loop {
             cam.read(&mut frame).unwrap();
+            match frame.size() {
+                Ok(_) => {}
+                Err(_) => {
+                    continue;
+                }
+            }
             let mut rescaled: Mat = Mat::default();
-            imgproc::resize(
+            match imgproc::resize(
                 &frame,
                 &mut rescaled,
                 Size_ {
@@ -49,8 +55,11 @@ pub fn start_movement_detect_thread(mov_detect_tx: Sender<bool>) {
                 0.5,
                 0.5,
                 INTER_LINEAR,
-            )
-            .unwrap();
+            ) {
+                Ok(_) => {}
+                Err(_) => continue,
+            }
+
             let mut first_pass: Mat = Mat::default();
             imgproc::cvt_color(&rescaled, &mut first_pass, COLOR_BGR2GRAY, 0).unwrap();
             let mut final_frame: Mat = Mat::default();
@@ -230,7 +239,7 @@ fn start_recording_clip(stop_signal: Receiver<()>, filename: String) {
             match stop_signal.recv_timeout(Duration::from_millis(1000)) {
                 Ok(_) => {
                     println!("Recording stopped");
-                    
+
                     generate_mp4_from_chunks(filename);
                     return;
                 }
@@ -241,8 +250,13 @@ fn start_recording_clip(stop_signal: Receiver<()>, filename: String) {
                             for file in stream_files {
                                 match file {
                                     Ok(file_entry) => {
-                                        let filename = file_entry.file_name().into_string().unwrap();
-                                        fs::copy(file_entry.path(), format!("{}/{}", &recording_stream, &filename)).expect("CANNOT COPY FILE");
+                                        let filename =
+                                            file_entry.file_name().into_string().unwrap();
+                                        fs::copy(
+                                            file_entry.path(),
+                                            format!("{}/{}", &recording_stream, &filename),
+                                        )
+                                        .expect("CANNOT COPY FILE");
                                     }
                                     Err(_) => {
                                         println!("Skipping file in stream")
@@ -265,36 +279,41 @@ fn generate_name() -> String {
 }
 
 fn concat_mp4_fragments(filename: String) {
-    let mut output_file = fs::File::create_new(format!("./static/clips/{}/concat.m4s", filename)).unwrap();
+    let mut output_file =
+        fs::File::create_new(format!("./static/clips/{}/concat.m4s", filename)).unwrap();
     let mut init_file = fs::File::open(format!("./static/clips/{}/init.mp4", filename)).unwrap();
     io::copy(&mut init_file, &mut output_file).unwrap();
     match fs::read_dir(format!("./static/clips/{}", filename)) {
-    Ok(stream_files) => {
-        let mut stream_files_sorted = stream_files.map(|res| res.map(|e| e.file_name())).into_iter().collect::<Result<Vec<_>, io::Error>>().unwrap();
-        stream_files_sorted.sort();
-        for file_path_ostr in stream_files_sorted {
-            let file_name_str = &file_path_ostr.into_string().unwrap();
-            let file_path_str = format!("./static/clips/{}/{}", filename, file_name_str);
-            let file_path = std::path::Path::new(&file_path_str);
+        Ok(stream_files) => {
+            let mut stream_files_sorted = stream_files
+                .map(|res| res.map(|e| e.file_name()))
+                .into_iter()
+                .collect::<Result<Vec<_>, io::Error>>()
+                .unwrap();
+            stream_files_sorted.sort();
+            for file_path_ostr in stream_files_sorted {
+                let file_name_str = &file_path_ostr.into_string().unwrap();
+                let file_path_str = format!("./static/clips/{}/{}", filename, file_name_str);
+                let file_path = std::path::Path::new(&file_path_str);
 
-            match fs::File::open(format!("./static/clips/{}/{}", filename, file_name_str)) {
-                Ok(mut file_entry) => {
-                    let filename = file_path.file_name().unwrap().to_str().unwrap();
-                    if filename.ends_with(".m4s") && filename != "concat.m4s" {
-                        io::copy(&mut file_entry, &mut output_file).unwrap();
+                match fs::File::open(format!("./static/clips/{}/{}", filename, file_name_str)) {
+                    Ok(mut file_entry) => {
+                        let filename = file_path.file_name().unwrap().to_str().unwrap();
+                        if filename.ends_with(".m4s") && filename != "concat.m4s" {
+                            io::copy(&mut file_entry, &mut output_file).unwrap();
+                        }
                     }
-                }
-                Err(err) => {
-                    println!("OPENFILERROR: {}", err);
-                    println!("Skipping file {} in stream", file_name_str)
+                    Err(err) => {
+                        println!("OPENFILERROR: {}", err);
+                        println!("Skipping file {} in stream", file_name_str)
+                    }
                 }
             }
         }
+        Err(_) => {
+            println!("ERROR: Couldn't read ./static/stream")
+        }
     }
-    Err(_) => {
-        println!("ERROR: Couldn't read ./static/stream")
-    }
-}
 }
 
 fn generate_mp4_from_chunks(filename: String) {

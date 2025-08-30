@@ -51,7 +51,7 @@
         <!-- svelte-ignore a11y_media_has_caption -->
         <video class="rounded-2xl m-3 bg-gray-950" bind:this={video_elm} autoplay muted></video>
         <h1 class="text-4xl">Last detected movements</h1>
-        <div class="flex flex-row-reverse items-center justify-center">
+        <div class="flex flex-row-reverse items-center justify-center flex-wrap">
             {#each events_list as event}
                 <EventItem filename={event.filename} start_time={new Date(event.start)} stop_time={new Date(event.end)}></EventItem>
             {/each}

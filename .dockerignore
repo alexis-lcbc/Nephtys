@@ -1,4 +1,10 @@
 # Backend
-./target
-./ffmpeg_command.txt
-./static
+./server/target
+./server/static
+./server/config.toml
+./server/ffmpeg_command.txt
+
+# Frontend
+./web/build
+./web/node_modules
+./web/.svelte-kit

@@ -101,7 +101,7 @@ fn load_config() -> Config {
         salt: salt.to_string(),
     };
     match fs::read_to_string("./config.toml") {
-        Ok(s) => match toml::from_str(s.as_str()) {
+        Ok(s) => match toml::from_str::<Config>(s.as_str()) {
             Ok(conf) => {
                 if conf.salt == "" {
                     println!("No salt found : generating a new one");
