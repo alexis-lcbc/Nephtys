@@ -24,7 +24,13 @@
             var hls = new Hls({
                 liveSyncMode: "edge",
                 liveSyncDurationCount: 1,
-                maxBufferLength: 10
+                enableWorker: true,
+                liveBackBufferLength: 0,
+                maxBufferLength: 1,
+                liveSyncDuration: 0,
+                liveMaxLatencyDuration: 5,
+                liveDurationInfinity: true,
+                highBufferWatchdogPeriod: 1,
             });
             hls.loadSource(video_src);
             hls.attachMedia(video_elm);
