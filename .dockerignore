@@ -1,7 +1,7 @@
 # Backend
 ./server/target
 ./server/static
-./server/config.toml
+./server/config
 ./server/ffmpeg_command.txt
 
 # Frontend

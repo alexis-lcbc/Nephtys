@@ -36,6 +36,8 @@ struct AppState {
     tokens: HashMap<String, time::Instant>,
 }
 
+const CONFIG_PATH: &str = "./config/config.toml";
+
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -100,7 +102,7 @@ fn load_config() -> Config {
         pass_hash: "".to_string(),
         salt: salt.to_string(),
     };
-    match fs::read_to_string("./config.toml") {
+    match fs::read_to_string(CONFIG_PATH) {
         Ok(s) => match toml::from_str::<Config>(s.as_str()) {
             Ok(conf) => {
                 if conf.salt == "" {
@@ -113,7 +115,7 @@ fn load_config() -> Config {
             Err(_) => panic!("Couldn't parse config.toml please check the file."),
         },
         Err(_) => fs::write(
-            "./config.toml",
+            CONFIG_PATH,
             toml::to_string_pretty(&config).expect("Couldn't parse default configuration"),
         )
         .expect(
@@ -132,7 +134,7 @@ pub enum WriteConfigError {
 pub fn write_config(config: &Config) -> Result<(), WriteConfigError> {
     let parsed = toml::to_string_pretty(&config);
     match parsed {
-        Ok(parsed) => match fs::write("./config.toml", parsed) {
+        Ok(parsed) => match fs::write(CONFIG_PATH, parsed) {
             Ok(_) => Ok(()),
             Err(_) => Err(WriteConfigError::FileSystemError),
         },
