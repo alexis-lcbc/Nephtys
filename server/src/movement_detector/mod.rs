@@ -23,7 +23,12 @@ pub fn start_movement_detect_thread(mov_detect_tx: Sender<bool>) {
     thread::spawn(move || {
         // hardcoding a delay is bad
         // TODO: Detect when enough .m4s have been added to the stream folder and start once that is reached.
-        thread::sleep(time::Duration::from_millis(5000));
+        thread::sleep(time::Duration::from_millis(15000));
+        loop {
+            if fs::exists("./static/stream/stream.m3u8").expect("Something went really wrong when trying to check on stream") {
+                break;
+            }
+        }
         println!("movement detection thread starting...");
         let mut cam =
             videoio::VideoCapture::from_file("./static/stream/stream.m3u8", videoio::CAP_ANY)

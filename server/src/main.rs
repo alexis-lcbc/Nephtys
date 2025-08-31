@@ -175,13 +175,13 @@ fn start_ffmpeg_webcam_streaming(input: String) {
                 "-f",
                 "hls",
                 "-hls_flags",
-                "delete_segments+independent_segments+split_by_time",
+                "delete_segments+split_by_time", // +independent_segments
                 "-hls_segment_type",
                 "fmp4",
                 "-hls_list_size",
-                "10",
+                "5",
                 "-hls_time",
-                "1",
+                "4",
                 "static/stream/stream.m3u8",
             ])
             .output()

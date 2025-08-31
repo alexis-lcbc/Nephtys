@@ -22,17 +22,14 @@
 
         if (Hls.isSupported() && video_elm != undefined) {
             var hls = new Hls({
-                liveSyncMode: "edge",
-                liveSyncDurationCount: 1,
                 enableWorker: true,
-                liveBackBufferLength: 0,
-                maxBufferLength: 1,
-                liveSyncDuration: 0,
-                liveDurationInfinity: true,
-                highBufferWatchdogPeriod: 1,
+                liveSyncDurationCount: 4,
+                liveMaxLatencyDurationCount: 5,
             });
+            console.log("attaching hls")
             hls.loadSource(video_src);
             hls.attachMedia(video_elm);
+
             hls.on((Hls.Events.MEDIA_ATTACHED), () => {
                 video_elm?.play();
             })
