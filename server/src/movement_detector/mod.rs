@@ -37,7 +37,12 @@ pub fn start_movement_detect_thread(mov_detect_tx: Sender<bool>) {
         // Read the camera
         // and display in the window
         loop {
-            cam.read(&mut frame).unwrap();
+            match cam.read(&mut frame) {
+                Ok(_) => {},
+                Err(_) => {
+                    continue;
+                }
+            }
             match frame.size() {
                 Ok(_) => {}
                 Err(_) => {
@@ -278,18 +283,18 @@ fn generate_name() -> String {
     rand::distr::Alphanumeric.sample_string(&mut rand::rng(), 32)
 }
 
-fn concat_mp4_fragments(filename: String) {
+fn concat_mp4_fragments(filename: String) -> Result<(), io::Error> {
     let mut output_file =
-        fs::File::create_new(format!("./static/clips/{}/concat.m4s", filename)).unwrap();
-    let mut init_file = fs::File::open(format!("./static/clips/{}/init.mp4", filename)).unwrap();
-    io::copy(&mut init_file, &mut output_file).unwrap();
+        fs::File::create_new(format!("./static/clips/{}/concat.m4s", filename))?;
+    let mut init_file = fs::File::open(format!("./static/clips/{}/init.mp4", filename))?;
+    io::copy(&mut init_file, &mut output_file)?;
     match fs::read_dir(format!("./static/clips/{}", filename)) {
         Ok(stream_files) => {
             let mut stream_files_sorted = stream_files
                 .map(|res| res.map(|e| e.file_name()))
                 .into_iter()
-                .collect::<Result<Vec<_>, io::Error>>()
-                .unwrap();
+                .collect::<Result<Vec<_>, io::Error>>()?;
+
             stream_files_sorted.sort();
             for file_path_ostr in stream_files_sorted {
                 let file_name_str = &file_path_ostr.into_string().unwrap();
@@ -309,16 +314,22 @@ fn concat_mp4_fragments(filename: String) {
                     }
                 }
             }
+
+            return Ok(())
         }
         Err(_) => {
-            println!("ERROR: Couldn't read ./static/stream")
+            println!("ERROR: Couldn't read ./static/stream");
+            Err(io::Error::new(io::ErrorKind::NotFound, "Couldn't read ./static/stream"))
         }
     }
 }
 
 fn generate_mp4_from_chunks(filename: String) {
     thread::spawn(move || {
-        concat_mp4_fragments(filename.clone());
+        match concat_mp4_fragments(filename.clone()) {
+            Ok(_) => {},
+            Err(_) => {println!("WARNING: Couldn't generate MP4 of clip"); return}
+        }
         let _ffmpeg_proc: Result<std::process::Child, std::io::Error> = Command::new("ffmpeg")
             .args([
                 "-v",
